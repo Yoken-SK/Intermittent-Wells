@@ -128,47 +128,61 @@
         }
 
         function processWellData(data) {
-            return data.map(item => {
-                // Normalisasi nama header agar toleran terhadap huruf kapital/spasi
-                const wellName = item.well_name || item['Well Name'] || item['WELL NAME'] || '-';
-                const system = (item.system || item['System'] || item['SYSTEM'] || '').toString().trim().toUpperCase();
-                const whp = parseFloat(item.whp || item['WHP'] || item['whp (psi)'] || 0);
-                const flp = parseFloat(item.flp || item['FLP'] || item['flp (psi)'] || 0);
-                const flt = parseFloat(item.flt || item['FLT'] || item['flt (°f)'] || 0);
-
-                let canOnline = false;
-                let reason = "";
-
-                if (system === 'GRF') {
-                    if (whp > 180) {
-                        canOnline = true;
-                        reason = "Ready (WHP > 180 psi)";
-                    } else {
-                        reason = "Low WHP (<= 180 psi)";
-                    }
-                } else if (system === 'BGP') {
-                    if (whp > 450) {
-                        canOnline = true;
-                        reason = "Ready (WHP > 450 psi)";
-                    } else {
-                        reason = "Low WHP (<= 450 psi)";
-                    }
-                } else {
-                    reason = "Unknown System System (" + system + ")";
+    return data.map(item => {
+        // Ambil nilai dari properti/kolom yang cocok tanpa mempedulikan huruf besar/kecil atau spasi
+        const getVal = (possibleNames) => {
+            const keys = Object.keys(item);
+            for (let pName of possibleNames) {
+                const foundKey = keys.find(k => k.trim().toLowerCase() === pName.toLowerCase());
+                if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null) {
+                    return item[foundKey];
                 }
+            }
+            return null;
+        };
 
-                return {
-                    well_name: wellName,
-                    system: system,
-                    whp: whp,
-                    flp: flp,
-                    flt: flt,
-                    can_online: canOnline,
-                    reason: reason
-                };
-            });
+        // Pemetaan nama kolom fleksibel
+        const wellName = getVal(['well_name', 'well name', 'well', 'sumur', 'nama sumur', 'well_id']) || '-';
+        const systemRaw = getVal(['system', 'sistem', 'plant', 'destination', 'flow_system']) || '';
+        const system = systemRaw.toString().trim().toUpperCase();
+        
+        const whp = parseFloat(getVal(['whp', 'whp (psi)', 'whp_psi', 'sitp', 'sitp (psi)']) || 0);
+        const flp = parseFloat(getVal(['flp', 'flp (psi)', 'flp_psi']) || 0);
+        const flt = parseFloat(getVal(['flt', 'flt (f)', 'flt (°f)', 'flt_f', 'temp']) || 0);
+
+        let canOnline = false;
+        let reason = "";
+
+        // Evaluasi Kriteria
+        if (system === 'GRF' || system.includes('NEB') || system.includes('GEMAH')) {
+            if (whp > 180) {
+                canOnline = true;
+                reason = "Ready (WHP > 180 psi)";
+            } else {
+                reason = "Low WHP (<= 180 psi)";
+            }
+        } else if (system === 'BGP' || system.includes('BGP')) {
+            if (whp > 450) {
+                canOnline = true;
+                reason = "Ready (WHP > 450 psi)";
+            } else {
+                reason = "Low WHP (<= 450 psi)";
+            }
+        } else {
+            reason = system ? `Unknown System (${system})` : "System Column Empty/Missing";
         }
 
+        return {
+            well_name: wellName,
+            system: system || 'N/A',
+            whp: whp,
+            flp: flp,
+            flt: flt,
+            can_online: canOnline,
+            reason: reason
+        };
+    });
+}
         function renderDashboard(wells, fileName) {
             const tbody = document.getElementById('well-table-body');
             tbody.innerHTML = '';
