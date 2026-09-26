@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Intermittent Wells Online Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen p-6">
+
+    <div class="max-w-7xl mx-mx-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+            <div>
+                <h1 class="text-2xl font-bold text-emerald-400">Intermittent Wells Daily Dashboard</h1>
+                <p class="text-slate-400 text-sm">Monitoring & Online Readiness List</p>
+            </div>
+            <div id="last-updated" class="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">
+                Status: Loading data...
+            </div>
+        </header>
+
+        <!-- Criteria Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                <span class="text-xs text-slate-400">Total Monitored Wells</span>
+                <div id="total-wells" class="text-3xl font-bold mt-1 text-white">0</div>
+            </div>
+            <div class="bg-slate-800 p-4 rounded-xl border border-emerald-500/30">
+                <span class="text-xs text-emerald-400">Ready to Online</span>
+                <div id="ready-wells" class="text-3xl font-bold mt-1 text-emerald-400">0</div>
+            </div>
+            <div class="bg-slate-800 p-4 rounded-xl border border-amber-500/30">
+                <span class="text-xs text-amber-400">Below Pressure Threshold</span>
+                <div id="not-ready-wells" class="text-3xl font-bold mt-1 text-amber-400">0</div>
+            </div>
+        </div>
+
+        <!-- System Criteria Info -->
+        <div class="bg-slate-800/60 p-4 rounded-xl mb-6 text-xs text-slate-300 border border-slate-700 flex flex-wrap gap-6">
+            <div><span class="font-bold text-emerald-400">GRF System Limit:</span> WHP > 180 psi</div>
+            <div><span class="font-bold text-emerald-400">BGP System Limit:</span> WHP > 450 psi</div>
+        </div>
+
+        <!-- Main Data Table -->
+        <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+            <div class="p-4 border-b border-slate-700 flex justify-between items-center">
+                <h2 class="font-semibold text-slate-200">Daily Well Status List</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="bg-slate-900/50 text-slate-400 text-xs uppercase border-b border-slate-700">
+                        <tr>
+                            <th class="px-6 py-3">Well Name</th>
+                            <th class="px-6 py-3">System</th>
+                            <th class="px-6 py-3">WHP (psi)</th>
+                            <th class="px-6 py-3">FLP (psi)</th>
+                            <th class="px-6 py-3">FLT (°F)</th>
+                            <th class="px-6 py-3">Status Action</th>
+                            <th class="px-6 py-3">Criteria Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody id="well-table-body" class="divide-y divide-slate-700">
+                        <!-- Rows dynamically populated -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchWellData() {
+            try {
+                const response = await fetch('./wells_data.json?t=' + new Date().getTime());
+                const data = await response.json();
+                renderDashboard(data);
+            } catch (error) {
+                console.error("Error fetching wells data:", error);
+                document.getElementById('last-updated').innerText = "Failed to load data";
+            }
+        }
+
+        function renderDashboard(wells) {
+            const tbody = document.getElementById('well-table-body');
+            tbody.innerHTML = '';
+
+            let readyCount = 0;
+            let notReadyCount = 0;
+
+            wells.forEach(well => {
+                if (well.can_online) readyCount++;
+                else notReadyCount++;
+
+                const row = document.createElement('tr');
+                row.className = well.can_online ? 'bg-emerald-950/20 hover:bg-emerald-950/30' : 'hover:bg-slate-700/30';
+
+                const statusBadge = well.can_online 
+                    ? `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">READY TO ONLINE</span>`
+                    : `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">HOLD / MONITOR</span>`;
+
+                row.innerHTML = `
+                    <td class="px-6 py-4 font-medium text-white">${well.well_name}</td>
+                    <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs">${well.system}</span></td>
+                    <td class="px-6 py-4 font-bold ${well.can_online ? 'text-emerald-400' : 'text-slate-300'}">${well.whp}</td>
+                    <td class="px-6 py-4">${well.flp}</td>
+                    <td class="px-6 py-4">${well.flt}</td>
+                    <td class="px-6 py-4">${statusBadge}</td>
+                    <td class="px-6 py-4 text-xs text-slate-400">${well.reason}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            document.getElementById('total-wells').innerText = wells.length;
+            document.getElementById('ready-wells').innerText = readyCount;
+            document.getElementById('not-ready-wells').innerText = notReadyCount;
+            document.getElementById('last-updated').innerText = "Last Updated: " + new Date().toLocaleTimeString();
+        }
+
+        fetchWellData();
+    </script>
+</body>
+</html>
