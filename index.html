@@ -1,24 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daily Intermittent Wells Online Dashboard</title>
+    <title>Intermittent Wells Daily Dashboard</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS untuk membaca file Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body class="bg-slate-900 text-white min-h-screen p-6">
 
-    <div class="max-w-7xl mx-mx-auto">
+    <div class="max-w-7xl mx-auto">
         <!-- Header -->
-        <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-700 pb-4 gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-emerald-400">Intermittent Wells Daily Dashboard</h1>
                 <p class="text-slate-400 text-sm">Monitoring & Online Readiness List</p>
             </div>
             <div id="last-updated" class="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">
-                Status: Loading data...
+                Status: Menunggu Upload File Excel
             </div>
         </header>
+
+        <!-- Excel Upload Section -->
+        <div class="bg-slate-800/80 p-5 rounded-xl border border-slate-700 mb-6">
+            <h2 class="text-sm font-semibold text-slate-200 mb-2">Upload Daily Report (Excel File)</h2>
+            <div class="flex flex-col sm:flex-row items-center gap-4">
+                <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="block w-full text-sm text-slate-400
+                    file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
+                    file:text-sm file:font-semibold file:bg-emerald-600 file:text-white
+                    hover:file:bg-emerald-500 cursor-pointer border border-slate-600 rounded-lg bg-slate-900 p-1">
+                <span class="text-xs text-slate-400 whitespace-nowrap">*Format kolom wajib: <code class="text-emerald-300">well_name</code>, <code class="text-emerald-300">system</code>, <code class="text-emerald-300">whp</code>, <code class="text-emerald-300">flp</code>, <code class="text-emerald-300">flt</code></span>
+            </div>
+        </div>
 
         <!-- Criteria Summary Cards -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -53,34 +68,108 @@
                         <tr>
                             <th class="px-6 py-3">Well Name</th>
                             <th class="px-6 py-3">System</th>
-                            <th class="px-6 py-3">WHP (psi)</th>
-                            <th class="px-6 py-3">FLP (psi)</th>
+                            <th class="px-6 py-3">WHP (PSI)</th>
+                            <th class="px-6 py-3">FLP (PSI)</th>
                             <th class="px-6 py-3">FLT (°F)</th>
                             <th class="px-6 py-3">Status Action</th>
                             <th class="px-6 py-3">Criteria Remarks</th>
                         </tr>
                     </thead>
                     <tbody id="well-table-body" class="divide-y divide-slate-700">
-                        <!-- Rows dynamically populated -->
+                        <tr>
+                            <td colspan="7" class="px-6 py-8 text-center text-slate-500">
+                                Silakan upload file Excel daily report di atas untuk menampilkan data.
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
+    <!-- Logic JS -->
     <script>
-        async function fetchWellData() {
-            try {
-                const response = await fetch('./wells_data.json?t=' + new Date().getTime());
-                const data = await response.json();
-                renderDashboard(data);
-            } catch (error) {
-                console.error("Error fetching wells data:", error);
-                document.getElementById('last-updated').innerText = "Failed to load data";
-            }
+        document.getElementById('excel-file-input').addEventListener('change', handleFileUpload);
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    // Ambil Sheet Pertama
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    
+                    // Konversi Sheet ke JSON
+                    const rawData = XLSX.utils.sheet_to_json(worksheet);
+
+                    if (rawData.length === 0) {
+                        alert("File Excel kosong atau format tidak sesuai!");
+                        return;
+                    }
+
+                    // Proses aturan batas WHP
+                    const processedData = processWellData(rawData);
+                    renderDashboard(processedData, file.name);
+
+                } catch (err) {
+                    console.error(err);
+                    alert("Gagal membaca file Excel. Pastikan format file .xlsx/.xls sudah benar.");
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
         }
 
-        function renderDashboard(wells) {
+        function processWellData(data) {
+            return data.map(item => {
+                // Normalisasi nama header agar toleran terhadap huruf kapital/spasi
+                const wellName = item.well_name || item['Well Name'] || item['WELL NAME'] || '-';
+                const system = (item.system || item['System'] || item['SYSTEM'] || '').toString().trim().toUpperCase();
+                const whp = parseFloat(item.whp || item['WHP'] || item['whp (psi)'] || 0);
+                const flp = parseFloat(item.flp || item['FLP'] || item['flp (psi)'] || 0);
+                const flt = parseFloat(item.flt || item['FLT'] || item['flt (°f)'] || 0);
+
+                let canOnline = false;
+                let reason = "";
+
+                if (system === 'GRF') {
+                    if (whp > 180) {
+                        canOnline = true;
+                        reason = "Ready (WHP > 180 psi)";
+                    } else {
+                        reason = "Low WHP (<= 180 psi)";
+                    }
+                } else if (system === 'BGP') {
+                    if (whp > 450) {
+                        canOnline = true;
+                        reason = "Ready (WHP > 450 psi)";
+                    } else {
+                        reason = "Low WHP (<= 450 psi)";
+                    }
+                } else {
+                    reason = "Unknown System System (" + system + ")";
+                }
+
+                return {
+                    well_name: wellName,
+                    system: system,
+                    whp: whp,
+                    flp: flp,
+                    flt: flt,
+                    can_online: canOnline,
+                    reason: reason
+                };
+            });
+        }
+
+        function renderDashboard(wells, fileName) {
             const tbody = document.getElementById('well-table-body');
             tbody.innerHTML = '';
 
@@ -113,10 +202,8 @@
             document.getElementById('total-wells').innerText = wells.length;
             document.getElementById('ready-wells').innerText = readyCount;
             document.getElementById('not-ready-wells').innerText = notReadyCount;
-            document.getElementById('last-updated').innerText = "Last Updated: " + new Date().toLocaleTimeString();
+            document.getElementById('last-updated').innerText = `File: ${fileName} (${new Date().toLocaleTimeString('id-ID')} WIB)`;
         }
-
-        fetchWellData();
     </script>
 </body>
 </html>
