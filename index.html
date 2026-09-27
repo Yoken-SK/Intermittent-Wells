@@ -16,7 +16,7 @@
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-700 pb-4 gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-emerald-400">Intermittent Wells Daily Dashboard</h1>
-                <p class="text-slate-400 text-sm">Monitoring & Online Readiness List (SITP Only Support)</p>
+                <p class="text-slate-400 text-sm">Monitoring & Online Readiness List (Morning Report SITP Support)</p>
             </div>
             <div id="last-updated" class="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">
                 Status: Menunggu Upload File Excel
@@ -31,7 +31,7 @@
                     file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
                     file:text-sm file:font-semibold file:bg-emerald-600 file:text-white
                     hover:file:bg-emerald-500 cursor-pointer border border-slate-600 rounded-lg bg-slate-900 p-1">
-                <span class="text-xs text-slate-400 whitespace-nowrap">*Hanya membaca kolom <code class="text-emerald-300">SITP / SITHP</code> (WHP Diabaikan)</span>
+                <span class="text-xs text-slate-400 whitespace-nowrap">*Hanya membaca nilai <code class="text-emerald-300">SITP / SITHP</code> (Halaman 1-4 & 5)</span>
             </div>
         </div>
 
@@ -105,22 +105,21 @@
                     
                     let allExtractedWells = [];
 
-                    // Iterasi Halaman 1 sampai 5 (Sheet 0 sampai 4)
+                    // Iterasi Halaman 1 sampai 5 (Index 0 sampai 4)
                     const totalPages = Math.min(5, workbook.SheetNames.length);
 
                     for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
                         const sheetName = workbook.SheetNames[pageIdx];
-                        const worksheet = workbook.Sheets[pageIdx];
+                        const worksheet = workbook.Sheets[sheetName];
                         
-                        // Baca sheet sebagai matriks 2D Array
+                        // Konversi sheet ke matriks 2D Array
                         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                         
-                        // Kriteria sistem aliran berdasarkan Halaman
                         const pageNum = pageIdx + 1;
                         const flowTo = (pageNum <= 4) ? 'GRF' : 'BGP';
                         const threshold = (pageNum <= 4) ? 180 : 450;
 
-                        // Ekstraksi data sumur dari matriks rows
+                        // Ekstraksi data sumur berdasarkan kriteria SITP
                         const wellsInSheet = parseSheetRows(rows, pageNum, sheetName, flowTo, threshold);
                         allExtractedWells = allExtractedWells.concat(wellsInSheet);
                     }
@@ -133,7 +132,7 @@
                     renderDashboard(allExtractedWells, file.name);
 
                 } catch (err) {
-                    console.error(err);
+                    console.error("Error reading file:", err);
                     alert("Gagal membaca file Excel. Pastikan file dalam format .xlsx/.xls.");
                 }
             };
@@ -158,9 +157,12 @@
                 const row = rows[r];
                 if (!row || row.length === 0) continue;
 
-                const rowStr = row.map(cell => (cell || '').toString().toLowerCase()).join(' ');
-                // Mencari baris header yang berisi "Well" dan "SITHP" / "SITP"
-                if (rowStr.includes('well') && (rowStr.includes('sithp') || rowStr.includes('sitp'))) {
+                // Gabungkan baris menjadi string untuk pencarian kata kunci header
+                const rowCells = row.map(cell => (cell || '').toString().trim().toLowerCase());
+                const rowStr = rowCells.join(' ');
+
+                // Cek apakah baris ini merupakan baris Header Tabel
+                if (rowCells.some(c => c.includes('well')) && rowCells.some(c => c.includes('sithp') || c.includes('sitp') || c === 'whp')) {
                     
                     let colWell = -1, colSITHP = -1, colFLP = -1, colFLT = -1;
 
@@ -172,25 +174,28 @@
                         else if (cellHeader === 'flt') colFLT = c;
                     }
 
-                    if (colWell === -1) colWell = 0; // Default kolom 0 jika tidak terdeteksi eksplisit
+                    if (colWell === -1) colWell = 0;
 
                     if (colSITHP !== -1) {
-                        // Membaca baris-baris data sumur di bawah header
+                        // Iterasi baris data di bawah header
                         for (let d = r + 1; d < rows.length; d++) {
                             const dataRow = rows[d];
-                            if (!dataRow || !dataRow[colWell]) continue;
+                            if (!dataRow || dataRow.length === 0) continue;
 
-                            const wellName = dataRow[colWell].toString().trim();
-                            
-                            // Abaikan baris yang bukan merupakan data nama sumur
-                            if (wellName === '' || wellName === '-' || wellName.toLowerCase().startsWith('total') || 
-                                wellName.toLowerCase().includes('daily') || wellName.toLowerCase().includes('well no')) {
+                            const wellNameRaw = dataRow[colWell];
+                            if (!wellNameRaw) continue;
+
+                            const wellName = wellNameRaw.toString().trim();
+                            const wellLower = wellName.toLowerCase();
+
+                            // Lewati jika merupakan baris header sekunder, total, atau deskripsi stasiun
+                            if (wellName === '' || wellName === '-' || wellLower.startsWith('total') || 
+                                wellLower.includes('daily') || wellLower.includes('well no') || wellLower.includes('oil well data')) {
                                 continue;
                             }
 
-                            // MURNI MEMBACA DARI KOLOM SITP / SITHP SAJA (WHP DIABAIKAN)
+                            // Hanya membaca kolom SITHP / SITP (WHP diabaikan)
                             let sitpVal = cleanNum(dataRow[colSITHP]);
-
                             let flp = colFLP !== -1 ? cleanNum(dataRow[colFLP]) : 0;
                             let flt = colFLT !== -1 ? cleanNum(dataRow[colFLT]) : 0;
 
