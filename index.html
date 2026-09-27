@@ -16,7 +16,7 @@
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-700 pb-4 gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-emerald-400">Intermittent Wells Daily Dashboard</h1>
-                <p class="text-slate-400 text-sm">Monitoring & Online Readiness List (Multi-Sheet Support)</p>
+                <p class="text-slate-400 text-sm">Monitoring & Online Readiness List (SITP Only Support)</p>
             </div>
             <div id="last-updated" class="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">
                 Status: Menunggu Upload File Excel
@@ -25,13 +25,13 @@
 
         <!-- Excel Upload Section -->
         <div class="bg-slate-800/80 p-5 rounded-xl border border-slate-700 mb-6">
-            <h2 class="text-sm font-semibold text-slate-200 mb-2">Upload Daily Report / BOL Sumuran (Excel File)</h2>
+            <h2 class="text-sm font-semibold text-slate-200 mb-2">Upload Daily Report / Morning Report (Excel File)</h2>
             <div class="flex flex-col sm:flex-row items-center gap-4">
                 <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="block w-full text-sm text-slate-400
                     file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
                     file:text-sm file:font-semibold file:bg-emerald-600 file:text-white
                     hover:file:bg-emerald-500 cursor-pointer border border-slate-600 rounded-lg bg-slate-900 p-1">
-                <span class="text-xs text-slate-400 whitespace-nowrap">*Membaca kolom <code class="text-emerald-300">Well No.</code>, <code class="text-emerald-300">Flow To</code>, & <code class="text-emerald-300">SITP</code> dari seluruh sheet</span>
+                <span class="text-xs text-slate-400 whitespace-nowrap">*Hanya membaca kolom <code class="text-emerald-300">SITP / SITHP</code> (WHP Diabaikan)</span>
             </div>
         </div>
 
@@ -53,14 +53,14 @@
 
         <!-- System Criteria Info -->
         <div class="bg-slate-800/60 p-4 rounded-xl mb-6 text-xs text-slate-300 border border-slate-700 flex flex-wrap gap-6">
-            <div><span class="font-bold text-emerald-400">GRF System Limit:</span> SITP / WHP > 180 psi</div>
-            <div><span class="font-bold text-emerald-400">BGP System Limit:</span> SITP / WHP > 450 psi</div>
+            <div><span class="font-bold text-emerald-400">GRF System (Hal 1-4):</span> SITP > 180 psi</div>
+            <div><span class="font-bold text-emerald-400">BGP System (Hal 5):</span> SITP > 450 psi</div>
         </div>
 
         <!-- Main Data Table -->
         <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
             <div class="p-4 border-b border-slate-700 flex justify-between items-center">
-                <h2 class="font-semibold text-slate-200">Daily Well Status List</h2>
+                <h2 class="font-semibold text-slate-200">Daily Well Status List (BOL Sumuran)</h2>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm text-slate-300">
@@ -69,7 +69,7 @@
                             <th class="px-6 py-3">Sheet</th>
                             <th class="px-6 py-3">Well No.</th>
                             <th class="px-6 py-3">Flow To</th>
-                            <th class="px-6 py-3">SITP / WHP (PSI)</th>
+                            <th class="px-6 py-3">SITP (PSI)</th>
                             <th class="px-6 py-3">FLP (PSI)</th>
                             <th class="px-6 py-3">FLT (°F)</th>
                             <th class="px-6 py-3">Status Action</th>
@@ -79,7 +79,7 @@
                     <tbody id="well-table-body" class="divide-y divide-slate-700">
                         <tr>
                             <td colspan="8" class="px-6 py-8 text-center text-slate-500">
-                                Silakan upload file Excel BOL sumuran di atas untuk menampilkan data.
+                                Silakan upload file Excel Morning Report di atas untuk menampilkan data.
                             </td>
                         </tr>
                     </tbody>
@@ -103,115 +103,118 @@
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, { type: 'array' });
                     
-                    let allRawData = [];
+                    let allExtractedWells = [];
 
-                    // Loop untuk membaca semua sheet yang ada di file Excel
-                    workbook.SheetNames.forEach(sheetName => {
-                        const worksheet = workbook.Sheets[sheetName];
-                        const sheetData = XLSX.utils.sheet_to_json(worksheet);
+                    // Iterasi Halaman 1 sampai 5 (Sheet 0 sampai 4)
+                    const totalPages = Math.min(5, workbook.SheetNames.length);
 
-                        // Tambahkan penanda nama sheet ke tiap baris data
-                        sheetData.forEach(row => {
-                            row['_sheet_name'] = sheetName;
-                            allRawData.push(row);
-                        });
-                    });
+                    for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+                        const sheetName = workbook.SheetNames[pageIdx];
+                        const worksheet = workbook.Sheets[pageIdx];
+                        
+                        // Baca sheet sebagai matriks 2D Array
+                        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        
+                        // Kriteria sistem aliran berdasarkan Halaman
+                        const pageNum = pageIdx + 1;
+                        const flowTo = (pageNum <= 4) ? 'GRF' : 'BGP';
+                        const threshold = (pageNum <= 4) ? 180 : 450;
 
-                    if (allRawData.length === 0) {
-                        alert("File Excel kosong atau format tidak sesuai!");
+                        // Ekstraksi data sumur dari matriks rows
+                        const wellsInSheet = parseSheetRows(rows, pageNum, sheetName, flowTo, threshold);
+                        allExtractedWells = allExtractedWells.concat(wellsInSheet);
+                    }
+
+                    if (allExtractedWells.length === 0) {
+                        alert("Tidak ditemukan data sumur yang memiliki nilai SITP/SITHP pada file ini.");
                         return;
                     }
 
-                    // Proses data dari seluruh sheet
-                    const processedData = processWellData(allRawData);
-                    renderDashboard(processedData, file.name);
+                    renderDashboard(allExtractedWells, file.name);
 
                 } catch (err) {
                     console.error(err);
-                    alert("Gagal membaca file Excel. Pastikan format file .xlsx/.xls sudah benar.");
+                    alert("Gagal membaca file Excel. Pastikan file dalam format .xlsx/.xls.");
                 }
             };
 
             reader.readAsArrayBuffer(file);
         }
 
-        function processWellData(data) {
-            const validRows = [];
+        function cleanNum(val) {
+            if (val === undefined || val === null) return 0;
+            let str = val.toString().trim().replace(',', '.');
+            if (str === '-' || str === '' || str.toLowerCase() === 'nan' || str.toLowerCase() === 'error') {
+                return 0;
+            }
+            let parsed = parseFloat(str);
+            return isNaN(parsed) ? 0 : parsed;
+        }
 
-            data.forEach(item => {
-                // Helper pemetaan nama kolom
-                const getVal = (possibleNames) => {
-                    const keys = Object.keys(item);
-                    for (let pName of possibleNames) {
-                        const foundKey = keys.find(k => {
-                            const cleanKey = k.trim().toLowerCase().replace(/[\s._-]/g, '');
-                            const cleanPName = pName.toLowerCase().replace(/[\s._-]/g, '');
-                            return cleanKey === cleanPName;
-                        });
-                        if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null) {
-                            return item[foundKey];
+        function parseSheetRows(rows, pageNum, sheetName, flowTo, threshold) {
+            let extracted = [];
+
+            for (let r = 0; r < rows.length; r++) {
+                const row = rows[r];
+                if (!row || row.length === 0) continue;
+
+                const rowStr = row.map(cell => (cell || '').toString().toLowerCase()).join(' ');
+                // Mencari baris header yang berisi "Well" dan "SITHP" / "SITP"
+                if (rowStr.includes('well') && (rowStr.includes('sithp') || rowStr.includes('sitp'))) {
+                    
+                    let colWell = -1, colSITHP = -1, colFLP = -1, colFLT = -1;
+
+                    for (let c = 0; c < row.length; c++) {
+                        const cellHeader = (row[c] || '').toString().trim().toLowerCase().replace(/[\s._-]/g, '');
+                        if (cellHeader.includes('well')) colWell = c;
+                        else if (cellHeader.includes('sithp') || cellHeader.includes('sitp')) colSITHP = c;
+                        else if (cellHeader === 'flp') colFLP = c;
+                        else if (cellHeader === 'flt') colFLT = c;
+                    }
+
+                    if (colWell === -1) colWell = 0; // Default kolom 0 jika tidak terdeteksi eksplisit
+
+                    if (colSITHP !== -1) {
+                        // Membaca baris-baris data sumur di bawah header
+                        for (let d = r + 1; d < rows.length; d++) {
+                            const dataRow = rows[d];
+                            if (!dataRow || !dataRow[colWell]) continue;
+
+                            const wellName = dataRow[colWell].toString().trim();
+                            
+                            // Abaikan baris yang bukan merupakan data nama sumur
+                            if (wellName === '' || wellName === '-' || wellName.toLowerCase().startsWith('total') || 
+                                wellName.toLowerCase().includes('daily') || wellName.toLowerCase().includes('well no')) {
+                                continue;
+                            }
+
+                            // MURNI MEMBACA DARI KOLOM SITP / SITHP SAJA (WHP DIABAIKAN)
+                            let sitpVal = cleanNum(dataRow[colSITHP]);
+
+                            let flp = colFLP !== -1 ? cleanNum(dataRow[colFLP]) : 0;
+                            let flt = colFLT !== -1 ? cleanNum(dataRow[colFLT]) : 0;
+
+                            let canOnline = sitpVal > threshold;
+                            let reason = canOnline 
+                                ? `Ready (SITP ${sitpVal} > ${threshold} psi)`
+                                : `Low SITP (${sitpVal} <= ${threshold} psi)`;
+
+                            extracted.push({
+                                sheet_name: `Hal ${pageNum} (${sheetName.trim()})`,
+                                well_name: wellName,
+                                flow_to: flowTo,
+                                sitp: sitpVal,
+                                flp: flp,
+                                flt: flt,
+                                can_online: canOnline,
+                                reason: reason
+                            });
                         }
                     }
-                    return null;
-                };
-
-                // Ambil Nama Sumur dari 'Well No.'
-                const wellName = getVal([
-                    'well no', 'well no.', 'well_no', 'wellno', 'no well', 'well number',
-                    'well_name', 'well name', 'wellname', 'well', 'sumur', 'nama sumur', 'well_id'
-                ]);
-
-                // Abaikan baris yang tidak memiliki data Well No. valid
-                if (!wellName || wellName.toString().trim() === '' || wellName.toString().trim() === '-') {
-                    return;
                 }
+            }
 
-                // Ambil Flow To
-                const flowToRaw = getVal(['flow_to', 'flow to', 'flowto', 'kategori', 'system', 'sistem', 'plant', 'destination', 'flow_system']) || '';
-                const flowTo = flowToRaw.toString().trim().toUpperCase();
-
-                // Ambil SITP (diutamakan SITP, lalu WHP)
-                const sitpRaw = getVal(['sitp', 'sitp (psi)', 'sitp_psi', 'sitp/whp', 'whp', 'whp (psi)', 'whp_psi']);
-                const sitp = parseFloat(sitpRaw || 0);
-
-                const flp = parseFloat(getVal(['flp', 'flp (psi)', 'flp_psi']) || 0);
-                const flt = parseFloat(getVal(['flt', 'flt (f)', 'flt (°f)', 'flt_f', 'temp']) || 0);
-
-                let canOnline = false;
-                let reason = "";
-
-                // Evaluasi Kriteria berdasarkan Flow To dan SITP
-                if (flowTo === 'GRF' || flowTo.includes('NEB') || flowTo.includes('GEMAH')) {
-                    if (sitp > 180) {
-                        canOnline = true;
-                        reason = "Ready (SITP > 180 psi)";
-                    } else {
-                        reason = "Low SITP (<= 180 psi)";
-                    }
-                } else if (flowTo === 'BGP' || flowTo.includes('BGP')) {
-                    if (sitp > 450) {
-                        canOnline = true;
-                        reason = "Ready (SITP > 450 psi)";
-                    } else {
-                        reason = "Low SITP (<= 450 psi)";
-                    }
-                } else {
-                    reason = flowTo ? `Unknown Flow To (${flowTo})` : "Flow To Column Empty/Missing";
-                }
-
-                validRows.push({
-                    sheet_name: item['_sheet_name'] || 'Sheet1',
-                    well_name: wellName.toString().trim(),
-                    flow_to: flowTo || 'N/A',
-                    sitp: sitp,
-                    flp: flp,
-                    flt: flt,
-                    can_online: canOnline,
-                    reason: reason
-                });
-            });
-
-            return validRows;
+            return extracted;
         }
 
         function renderDashboard(wells, fileName) {
@@ -235,7 +238,7 @@
                 row.innerHTML = `
                     <td class="px-6 py-4 text-xs text-slate-400"><span class="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded">${well.sheet_name}</span></td>
                     <td class="px-6 py-4 font-medium text-white">${well.well_name}</td>
-                    <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs">${well.flow_to}</span></td>
+                    <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs font-bold ${well.flow_to === 'GRF' ? 'text-cyan-400' : 'text-amber-400'}">${well.flow_to}</span></td>
                     <td class="px-6 py-4 font-bold ${well.can_online ? 'text-emerald-400' : 'text-slate-300'}">${well.sitp}</td>
                     <td class="px-6 py-4">${well.flp}</td>
                     <td class="px-6 py-4">${well.flt}</td>
