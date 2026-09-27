@@ -31,7 +31,7 @@
                     file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
                     file:text-sm file:font-semibold file:bg-emerald-600 file:text-white
                     hover:file:bg-emerald-500 cursor-pointer border border-slate-600 rounded-lg bg-slate-900 p-1">
-                <span class="text-xs text-slate-400 whitespace-nowrap">*Format kolom wajib: <code class="text-emerald-300">well_name</code>, <code class="text-emerald-300">system</code>, <code class="text-emerald-300">whp</code>, <code class="text-emerald-300">flp</code>, <code class="text-emerald-300">flt</code></span>
+                <span class="text-xs text-slate-400 whitespace-nowrap">*Format kolom wajib: <code class="text-emerald-300">well_name</code>, <code class="text-emerald-300">flow_to</code>, <code class="text-emerald-300">whp</code>, <code class="text-emerald-300">flp</code>, <code class="text-emerald-300">flt</code></span>
             </div>
         </div>
 
@@ -67,7 +67,7 @@
                     <thead class="bg-slate-900/50 text-slate-400 text-xs uppercase border-b border-slate-700">
                         <tr>
                             <th class="px-6 py-3">Well Name</th>
-                            <th class="px-6 py-3">System</th>
+                            <th class="px-6 py-3">Flow To</th>
                             <th class="px-6 py-3">WHP (PSI)</th>
                             <th class="px-6 py-3">FLP (PSI)</th>
                             <th class="px-6 py-3">FLT (°F)</th>
@@ -128,61 +128,64 @@
         }
 
         function processWellData(data) {
-    return data.map(item => {
-        // Ambil nilai dari properti/kolom yang cocok tanpa mempedulikan huruf besar/kecil atau spasi
-        const getVal = (possibleNames) => {
-            const keys = Object.keys(item);
-            for (let pName of possibleNames) {
-                const foundKey = keys.find(k => k.trim().toLowerCase() === pName.toLowerCase());
-                if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null) {
-                    return item[foundKey];
+            return data.map(item => {
+                // Ambil nilai dari properti/kolom yang cocok tanpa mempedulikan huruf besar/kecil atau spasi
+                const getVal = (possibleNames) => {
+                    const keys = Object.keys(item);
+                    for (let pName of possibleNames) {
+                        const foundKey = keys.find(k => k.trim().toLowerCase() === pName.toLowerCase());
+                        if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null) {
+                            return item[foundKey];
+                        }
+                    }
+                    return null;
+                };
+
+                // Pemetaan nama kolom fleksibel
+                const wellName = getVal(['well_name', 'well name', 'well', 'sumur', 'nama sumur', 'well_id']) || '-';
+                
+                // Kolom Flow To (menggantikan Kategori)
+                const flowToRaw = getVal(['flow_to', 'flow to', 'flowto', 'kategori', 'system', 'sistem', 'plant', 'destination', 'flow_system']) || '';
+                const flowTo = flowToRaw.toString().trim().toUpperCase();
+                
+                const whp = parseFloat(getVal(['whp', 'whp (psi)', 'whp_psi', 'sitp', 'sitp (psi)']) || 0);
+                const flp = parseFloat(getVal(['flp', 'flp (psi)', 'flp_psi']) || 0);
+                const flt = parseFloat(getVal(['flt', 'flt (f)', 'flt (°f)', 'flt_f', 'temp']) || 0);
+
+                let canOnline = false;
+                let reason = "";
+
+                // Evaluasi Kriteria berdasarkan Flow To
+                if (flowTo === 'GRF' || flowTo.includes('NEB') || flowTo.includes('GEMAH')) {
+                    if (whp > 180) {
+                        canOnline = true;
+                        reason = "Ready (WHP > 180 psi)";
+                    } else {
+                        reason = "Low WHP (<= 180 psi)";
+                    }
+                } else if (flowTo === 'BGP' || flowTo.includes('BGP')) {
+                    if (whp > 450) {
+                        canOnline = true;
+                        reason = "Ready (WHP > 450 psi)";
+                    } else {
+                        reason = "Low WHP (<= 450 psi)";
+                    }
+                } else {
+                    reason = flowTo ? `Unknown Flow To (${flowTo})` : "Flow To Column Empty/Missing";
                 }
-            }
-            return null;
-        };
 
-        // Pemetaan nama kolom fleksibel
-        const wellName = getVal(['well_name', 'well name', 'well', 'sumur', 'nama sumur', 'well_id']) || '-';
-        const systemRaw = getVal(['system', 'sistem', 'plant', 'destination', 'flow_system']) || '';
-        const system = systemRaw.toString().trim().toUpperCase();
-        
-        const whp = parseFloat(getVal(['whp', 'whp (psi)', 'whp_psi', 'sitp', 'sitp (psi)']) || 0);
-        const flp = parseFloat(getVal(['flp', 'flp (psi)', 'flp_psi']) || 0);
-        const flt = parseFloat(getVal(['flt', 'flt (f)', 'flt (°f)', 'flt_f', 'temp']) || 0);
-
-        let canOnline = false;
-        let reason = "";
-
-        // Evaluasi Kriteria
-        if (system === 'GRF' || system.includes('NEB') || system.includes('GEMAH')) {
-            if (whp > 180) {
-                canOnline = true;
-                reason = "Ready (WHP > 180 psi)";
-            } else {
-                reason = "Low WHP (<= 180 psi)";
-            }
-        } else if (system === 'BGP' || system.includes('BGP')) {
-            if (whp > 450) {
-                canOnline = true;
-                reason = "Ready (WHP > 450 psi)";
-            } else {
-                reason = "Low WHP (<= 450 psi)";
-            }
-        } else {
-            reason = system ? `Unknown System (${system})` : "System Column Empty/Missing";
+                return {
+                    well_name: wellName,
+                    flow_to: flowTo || 'N/A',
+                    whp: whp,
+                    flp: flp,
+                    flt: flt,
+                    can_online: canOnline,
+                    reason: reason
+                };
+            });
         }
 
-        return {
-            well_name: wellName,
-            system: system || 'N/A',
-            whp: whp,
-            flp: flp,
-            flt: flt,
-            can_online: canOnline,
-            reason: reason
-        };
-    });
-}
         function renderDashboard(wells, fileName) {
             const tbody = document.getElementById('well-table-body');
             tbody.innerHTML = '';
@@ -203,7 +206,7 @@
 
                 row.innerHTML = `
                     <td class="px-6 py-4 font-medium text-white">${well.well_name}</td>
-                    <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs">${well.system}</span></td>
+                    <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs">${well.flow_to}</span></td>
                     <td class="px-6 py-4 font-bold ${well.can_online ? 'text-emerald-400' : 'text-slate-300'}">${well.whp}</td>
                     <td class="px-6 py-4">${well.flp}</td>
                     <td class="px-6 py-4">${well.flt}</td>
