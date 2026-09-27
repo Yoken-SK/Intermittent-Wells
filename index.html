@@ -31,7 +31,7 @@
                     file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
                     file:text-sm file:font-semibold file:bg-emerald-600 file:text-white
                     hover:file:bg-emerald-500 cursor-pointer border border-slate-600 rounded-lg bg-slate-900 p-1">
-                <span class="text-xs text-slate-400 whitespace-nowrap">*Hanya membaca nilai <code class="text-emerald-300">SITP / SITHP</code> (Halaman 1-4 & 5)</span>
+                <span class="text-xs text-slate-400 whitespace-nowrap">*Hanya membaca nilai <code class="text-emerald-300">SITP / SITHP</code> + Auto Screening Remarks</span>
             </div>
         </div>
 
@@ -72,7 +72,6 @@
                             <th class="px-6 py-3">SITP (PSI)</th>
                             <th class="px-6 py-3">FLP (PSI)</th>
                             <th class="px-6 py-3">FLT (°F)</th>
-                            <!-- Header Status Action dengan Dropdown Filter terintegrasi -->
                             <th class="px-6 py-3">
                                 <div class="flex items-center gap-1.5">
                                     <span>STATUS ACTION</span>
@@ -102,6 +101,22 @@
     <script>
         let currentExtractedWells = [];
         let currentFileName = "";
+
+        // Daftar kata kunci remark yang akan di-exclude/screen out
+        const EXCLUDED_REMARKS = [
+            'no wellhead spool',
+            'no well head spool',
+            'no well head',
+            'only wellhead',
+            'only well head',
+            'wing problem',
+            'ssv master close',
+            'ssv master closed',
+            'ssv & sdv close',
+            'ssv & sdv closed',
+            'no body choke',
+            'abandoned'
+        ];
 
         document.getElementById('excel-file-input').addEventListener('change', handleFileUpload);
         document.getElementById('status-filter').addEventListener('change', applyFilterAndRender);
@@ -135,7 +150,7 @@
                     }
 
                     if (allExtractedWells.length === 0) {
-                        alert("Tidak ditemukan data sumur yang memiliki nilai SITP/SITHP pada file ini.");
+                        alert("Tidak ditemukan data sumur yang lolos kriteria screening pada file ini.");
                         return;
                     }
 
@@ -174,7 +189,7 @@
 
                 if (rowCells.some(c => c.includes('well')) && rowCells.some(c => c.includes('sithp') || c.includes('sitp') || c === 'whp')) {
                     
-                    let colWell = -1, colSITHP = -1, colFLP = -1, colFLT = -1;
+                    let colWell = -1, colSITHP = -1, colFLP = -1, colFLT = -1, colRemark = -1;
 
                     for (let c = 0; c < row.length; c++) {
                         const cellHeader = (row[c] || '').toString().trim().toLowerCase().replace(/[\s._-]/g, '');
@@ -182,9 +197,11 @@
                         else if (cellHeader.includes('sithp') || cellHeader.includes('sitp')) colSITHP = c;
                         else if (cellHeader === 'flp') colFLP = c;
                         else if (cellHeader === 'flt') colFLT = c;
+                        else if (cellHeader.includes('remark') || cellHeader.includes('remak')) colRemark = c;
                     }
 
                     if (colWell === -1) colWell = 0;
+                    if (colRemark === -1) colRemark = row.length - 1; // Fallback jika kolom remark ada di bagian ujung kanan
 
                     if (colSITHP !== -1) {
                         for (let d = r + 1; d < rows.length; d++) {
@@ -199,6 +216,15 @@
 
                             if (wellName === '' || wellName === '-' || wellLower.startsWith('total') || 
                                 wellLower.includes('daily') || wellLower.includes('well no') || wellLower.includes('oil well data')) {
+                                continue;
+                            }
+
+                            // Cek Kolom Remark untuk Screening
+                            let remarkVal = colRemark !== -1 && dataRow[colRemark] ? dataRow[colRemark].toString().trim().toLowerCase() : '';
+                            
+                            // Eksekusi Screening: Jika remark mengandung kata kunci terlarang, lewati (exclude) sumur ini
+                            const isExcluded = EXCLUDED_REMARKS.some(keyword => remarkVal.includes(keyword));
+                            if (isExcluded) {
                                 continue;
                             }
 
