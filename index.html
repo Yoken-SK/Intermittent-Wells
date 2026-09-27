@@ -59,8 +59,18 @@
 
         <!-- Main Data Table -->
         <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-            <div class="p-4 border-b border-slate-700 flex justify-between items-center">
+            <div class="p-4 border-b border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 class="font-semibold text-slate-200">Daily Well Status List (BOL Sumuran)</h2>
+                
+                <!-- Filter Status Action Dropdown -->
+                <div class="flex items-center gap-2">
+                    <label for="status-filter" class="text-xs text-slate-400 font-medium">Filter Status:</label>
+                    <select id="status-filter" class="bg-slate-900 text-slate-200 text-xs rounded-lg border border-slate-600 px-3 py-1.5 focus:outline-none focus:border-emerald-500">
+                        <option value="all">Show All (Semua Data)</option>
+                        <option value="ready">READY TO ONLINE</option>
+                        <option value="hold">HOLD / MONITOR</option>
+                    </select>
+                </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm text-slate-300">
@@ -90,7 +100,11 @@
 
     <!-- Logic JS -->
     <script>
+        let currentExtractedWells = [];
+        let currentFileName = "";
+
         document.getElementById('excel-file-input').addEventListener('change', handleFileUpload);
+        document.getElementById('status-filter').addEventListener('change', applyFilterAndRender);
 
         function handleFileUpload(event) {
             const file = event.target.files[0];
@@ -104,22 +118,18 @@
                     const workbook = XLSX.read(data, { type: 'array' });
                     
                     let allExtractedWells = [];
-
-                    // Iterasi Halaman 1 sampai 5 (Index 0 sampai 4)
                     const totalPages = Math.min(5, workbook.SheetNames.length);
 
                     for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
                         const sheetName = workbook.SheetNames[pageIdx];
                         const worksheet = workbook.Sheets[sheetName];
                         
-                        // Konversi sheet ke matriks 2D Array
                         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                         
                         const pageNum = pageIdx + 1;
                         const flowTo = (pageNum <= 4) ? 'GRF' : 'BGP';
                         const threshold = (pageNum <= 4) ? 180 : 450;
 
-                        // Ekstraksi data sumur berdasarkan kriteria SITP
                         const wellsInSheet = parseSheetRows(rows, pageNum, sheetName, flowTo, threshold);
                         allExtractedWells = allExtractedWells.concat(wellsInSheet);
                     }
@@ -129,7 +139,10 @@
                         return;
                     }
 
-                    renderDashboard(allExtractedWells, file.name);
+                    currentExtractedWells = allExtractedWells;
+                    currentFileName = file.name;
+
+                    applyFilterAndRender();
 
                 } catch (err) {
                     console.error("Error reading file:", err);
@@ -157,11 +170,8 @@
                 const row = rows[r];
                 if (!row || row.length === 0) continue;
 
-                // Gabungkan baris menjadi string untuk pencarian kata kunci header
                 const rowCells = row.map(cell => (cell || '').toString().trim().toLowerCase());
-                const rowStr = rowCells.join(' ');
 
-                // Cek apakah baris ini merupakan baris Header Tabel
                 if (rowCells.some(c => c.includes('well')) && rowCells.some(c => c.includes('sithp') || c.includes('sitp') || c === 'whp')) {
                     
                     let colWell = -1, colSITHP = -1, colFLP = -1, colFLT = -1;
@@ -177,7 +187,6 @@
                     if (colWell === -1) colWell = 0;
 
                     if (colSITHP !== -1) {
-                        // Iterasi baris data di bawah header
                         for (let d = r + 1; d < rows.length; d++) {
                             const dataRow = rows[d];
                             if (!dataRow || dataRow.length === 0) continue;
@@ -188,13 +197,11 @@
                             const wellName = wellNameRaw.toString().trim();
                             const wellLower = wellName.toLowerCase();
 
-                            // Lewati jika merupakan baris header sekunder, total, atau deskripsi stasiun
                             if (wellName === '' || wellName === '-' || wellLower.startsWith('total') || 
                                 wellLower.includes('daily') || wellLower.includes('well no') || wellLower.includes('oil well data')) {
                                 continue;
                             }
 
-                            // Hanya membaca kolom SITHP / SITP (WHP diabaikan)
                             let sitpVal = cleanNum(dataRow[colSITHP]);
                             let flp = colFLP !== -1 ? cleanNum(dataRow[colFLP]) : 0;
                             let flt = colFLT !== -1 ? cleanNum(dataRow[colFLT]) : 0;
@@ -222,38 +229,64 @@
             return extracted;
         }
 
-        function renderDashboard(wells, fileName) {
+        function applyFilterAndRender() {
+            const filterValue = document.getElementById('status-filter').value;
+            let filteredWells = currentExtractedWells;
+
+            if (filterValue === 'ready') {
+                filteredWells = currentExtractedWells.filter(w => w.can_online);
+            } else if (filterValue === 'hold') {
+                filteredWells = currentExtractedWells.filter(w => !w.can_online);
+            }
+
+            renderDashboard(filteredWells, currentExtractedWells, currentFileName);
+        }
+
+        function renderDashboard(displayedWells, allWells, fileName) {
             const tbody = document.getElementById('well-table-body');
             tbody.innerHTML = '';
 
             let readyCount = 0;
             let notReadyCount = 0;
 
-            wells.forEach(well => {
+            allWells.forEach(well => {
                 if (well.can_online) readyCount++;
                 else notReadyCount++;
-
-                const row = document.createElement('tr');
-                row.className = well.can_online ? 'bg-emerald-950/20 hover:bg-emerald-950/30' : 'hover:bg-slate-700/30';
-
-                const statusBadge = well.can_online 
-                    ? `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">READY TO ONLINE</span>`
-                    : `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">HOLD / MONITOR</span>`;
-
-                row.innerHTML = `
-                    <td class="px-6 py-4 text-xs text-slate-400"><span class="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded">${well.sheet_name}</span></td>
-                    <td class="px-6 py-4 font-medium text-white">${well.well_name}</td>
-                    <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs font-bold ${well.flow_to === 'GRF' ? 'text-cyan-400' : 'text-amber-400'}">${well.flow_to}</span></td>
-                    <td class="px-6 py-4 font-bold ${well.can_online ? 'text-emerald-400' : 'text-slate-300'}">${well.sitp}</td>
-                    <td class="px-6 py-4">${well.flp}</td>
-                    <td class="px-6 py-4">${well.flt}</td>
-                    <td class="px-6 py-4">${statusBadge}</td>
-                    <td class="px-6 py-4 text-xs text-slate-400">${well.reason}</td>
-                `;
-                tbody.appendChild(row);
             });
 
-            document.getElementById('total-wells').innerText = wells.length;
+            if (displayedWells.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="px-6 py-8 text-center text-slate-500">
+                            Tidak ada data sumur yang sesuai dengan filter yang dipilih.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                displayedWells.forEach(well => {
+                    const row = document.createElement('tr');
+                    row.className = well.can_online ? 'bg-emerald-950/20 hover:bg-emerald-950/30' : 'hover:bg-slate-700/30';
+
+                    const statusBadge = well.can_online 
+                        ? `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">READY TO ONLINE</span>`
+                        : `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">HOLD / MONITOR</span>`;
+
+                    row.innerHTML = `
+                        <td class="px-6 py-4 text-xs text-slate-400"><span class="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded">${well.sheet_name}</span></td>
+                        <td class="px-6 py-4 font-medium text-white">${well.well_name}</td>
+                        <td class="px-6 py-4"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs font-bold ${well.flow_to === 'GRF' ? 'text-cyan-400' : 'text-amber-400'}">${well.flow_to}</span></td>
+                        <td class="px-6 py-4 font-bold ${well.can_online ? 'text-emerald-400' : 'text-slate-300'}">${well.sitp}</td>
+                        <td class="px-6 py-4">${well.flp}</td>
+                        <td class="px-6 py-4">${well.flt}</td>
+                        <td class="px-6 py-4">${statusBadge}</td>
+                        <td class="px-6 py-4 text-xs text-slate-400">${well.reason}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+
+            // Kartu Ringkasan Statistik tetap menampilkan total keseluruhan
+            document.getElementById('total-wells').innerText = allWells.length;
             document.getElementById('ready-wells').innerText = readyCount;
             document.getElementById('not-ready-wells').innerText = notReadyCount;
             document.getElementById('last-updated').innerText = `File: ${fileName} (${new Date().toLocaleTimeString('id-ID')} WIB)`;
