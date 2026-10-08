@@ -33,14 +33,14 @@
                     file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
                     file:text-sm file:font-semibold file:bg-emerald-600 file:text-white
                     hover:file:bg-emerald-500 cursor-pointer border border-slate-600 rounded-lg bg-slate-900 p-1">
-                <span class="text-xs text-slate-400 whitespace-nowrap">*Hanya membaca nilai <code class="text-emerald-300">SITP / SITHP</code> + Auto Screening Remarks</span>
+                <span class="text-xs text-slate-400 whitespace-nowrap">*Filter otomatis hanya sumur shut-in (FLP = 0) berbasis nilai SITP</span>
             </div>
         </div>
 
         <!-- Criteria Summary Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                <span class="text-xs text-slate-400">Total Monitored Wells</span>
+                <span class="text-xs text-slate-400">Total Monitored Wells (Shut-in)</span>
                 <div id="total-wells" class="text-2xl md:text-3xl font-bold mt-1 text-white">0</div>
             </div>
             <div class="bg-slate-800 p-4 rounded-xl border border-emerald-500/30">
@@ -55,8 +55,8 @@
 
         <!-- System Criteria Info -->
         <div class="bg-slate-800/60 p-4 rounded-xl mb-6 text-xs text-slate-300 border border-slate-700 flex flex-wrap gap-6">
-            <div><span class="font-bold text-emerald-400">GRF System (Hal 1-4):</span> SITP > 180 psi</div>
-            <div><span class="font-bold text-emerald-400">BGP System (Hal 5):</span> SITP > 450 psi</div>
+            <div><span class="font-bold text-emerald-400">GRF System (Hal 1-4):</span> SITP &gt; 180 psi & (FLP = 0)</div>
+            <div><span class="font-bold text-emerald-400">BGP System (Hal 5):</span> SITP &gt; 450 psi & (FLP = 0)</div>
         </div>
 
         <!-- Main Data Table -->
@@ -122,7 +122,12 @@
         const fileInput = document.getElementById('excel-file-input');
         const dropZone = document.getElementById('drop-zone');
 
-        fileInput.addEventListener('change', (e) => processFile(e.target.files[0]));
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                processFile(e.target.files[0]);
+            }
+        });
+        
         document.getElementById('status-filter').addEventListener('change', applyFilterAndRender);
 
         // Dukungan Drag and Drop
@@ -138,7 +143,7 @@
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.classList.remove('border-emerald-500');
-            if (e.dataTransfer.files.length) {
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 processFile(e.dataTransfer.files[0]);
             }
         });
@@ -171,7 +176,7 @@
                     }
 
                     if (allExtractedWells.length === 0) {
-                        alert("Tidak ditemukan data sumur yang lolos kriteria screening pada file ini.");
+                        alert("Tidak ditemukan data sumur terintip/shut-in yang lolos kriteria pada file ini.");
                         return;
                     }
 
@@ -222,7 +227,6 @@
                     }
 
                     if (colWell === -1) colWell = 0;
-                    if (colRemark === -1) colRemark = row.length - 1;
 
                     if (colSITHP !== -1) {
                         for (let d = r + 1; d < rows.length; d++) {
@@ -240,7 +244,7 @@
                                 continue;
                             }
 
-                            let remarkVal = colRemark !== -1 && dataRow[colRemark] ? dataRow[colRemark].toString().trim().toLowerCase() : '';
+                            let remarkVal = (colRemark !== -1 && dataRow[colRemark]) ? dataRow[colRemark].toString().trim().toLowerCase() : '';
                             
                             const isExcluded = EXCLUDED_REMARKS.some(keyword => remarkVal.includes(keyword));
                             if (isExcluded) {
@@ -251,9 +255,15 @@
                             let flp = colFLP !== -1 ? cleanNum(dataRow[colFLP]) : 0;
                             let flt = colFLT !== -1 ? cleanNum(dataRow[colFLT]) : 0;
 
+                            // LOGIKA TERBARU: Jika FLP > 0, sumur sudah online -> abaikan dari daftar opsi BOL
+                            if (flp > 0) {
+                                continue;
+                            }
+
+                            // Hanya mengevaluasi sumur yang belum online (FLP == 0)
                             let canOnline = sitpVal > threshold;
                             let reason = canOnline 
-                                ? `Ready (SITP ${sitpVal} > ${threshold} psi)`
+                                ? `Ready (SITP ${sitpVal} > ${threshold} psi & FLP = 0)`
                                 : `Low SITP (${sitpVal} <= ${threshold} psi)`;
 
                             extracted.push({
@@ -267,6 +277,7 @@
                                 reason: reason
                             });
                         }
+                        break;
                     }
                 }
             }
@@ -333,7 +344,7 @@
             document.getElementById('total-wells').innerText = allWells.length;
             document.getElementById('ready-wells').innerText = readyCount;
             document.getElementById('not-ready-wells').innerText = notReadyCount;
-            document.getElementById('last-updated').innerText = `File: ${fileName} (${new Date().toLocaleTimeString('id-ID')} WIB)`;
+            document.getElementById('last-updated').innerText = `File: ${fileName} (${new Date().toLocaleTimeString('id-ID')} WITA)`;
         }
     </script>
 </body>
